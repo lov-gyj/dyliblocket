@@ -3,36 +3,45 @@
 #import "LocketNotifyView.h"
 
 // ============================================================
-// MARK: - Các macro màu sắc & style
+// MARK: - Các macro cấu hình
 // ============================================================
 #define CREDIT_NAME         @"younj_icloud"
 #define ZALO_PHONE          @"0981309921"
 #define TELEGRAM_USER       @"younj_icloud"
 
 // ============================================================
-// MARK: - LocketNotifyView Implementation
+// MARK: - LocketNotifyView Class Extension
 // ============================================================
 @interface LocketNotifyView ()
-@property (nonatomic, strong) UIView *backgroundView;
-@property (nonatomic, strong) UIView *cardView;
-@property (nonatomic, strong) CAGradientLayer *borderGradient;
-@property (nonatomic, strong) CAShapeLayer *borderShape;
+@property (nonatomic, strong) UIView *backgroundDimView;
+@property (nonatomic, strong) UIVisualEffectView *cardBlurView;
+@property (nonatomic, strong) UIView *borderContainerView;
+@property (nonatomic, strong) CAGradientLayer *rotatingGradientLayer;
+@property (nonatomic, strong) CAShapeLayer *staticBorderMask;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subtitleLabel;
 @property (nonatomic, strong) UILabel *creditLabel;
 @property (nonatomic, strong) UIButton *zaloButton;
 @property (nonatomic, strong) UIButton *telegramButton;
-@property (nonatomic, strong) UIButton *closeButton;
-@property (nonatomic, strong) UIImageView *iconImageView;
-@property (nonatomic, strong) CAEmitterLayer *particleEmitter;
+@property (nonatomic, strong) UIButton *bottomCloseButton;
+@property (nonatomic, strong) UIButton *topXButton;
+@property (nonatomic, strong) UIView *iconContainerView;
 @property (nonatomic, strong) NSMutableArray<UIView *> *floatingDots;
+
+- (void)setupUltimateViews;
+- (void)animateIn;
+- (void)animateOut;
+- (void)startFloatingDotsAnimation;
+- (void)animateSingleDot:(UIView *)dot;
+- (void)dismissTapped;
+- (void)contactTapped:(UIButton *)sender;
+- (void)showCopiedToast:(NSString *)platform;
 @end
 
 @implementation LocketNotifyView
 
 static LocketNotifyView *_sharedInstance = nil;
 
-// MARK: - Singleton Show
 + (void)show {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (_sharedInstance) {
@@ -40,24 +49,25 @@ static LocketNotifyView *_sharedInstance = nil;
             _sharedInstance = nil;
         }
         _sharedInstance = [[LocketNotifyView alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        
         UIWindow *keyWindow = nil;
-        if (@available(iOS 13.0, *)) {
-            for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                if (scene.activationState == UISceneActivationStateForegroundActive) {
-                    for (UIWindow *window in scene.windows) {
-                        if (window.isKeyWindow) {
-                            keyWindow = window;
-                            break;
-                        }
+        for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive) {
+                for (UIWindow *window in scene.windows) {
+                    if (window.isKeyWindow) {
+                        keyWindow = window;
+                        break;
                     }
                 }
+                if (keyWindow) break;
             }
         }
-        if (!keyWindow) {
-            keyWindow = [UIApplication sharedApplication].keyWindow;
+        if (keyWindow) {
+            [keyWindow addSubview:_sharedInstance];
+            [_sharedInstance animateIn];
+        } else {
+            NSLog(@"❌ LocketNotify: Không tìm thấy keyWindow!");
         }
-        [keyWindow addSubview:_sharedInstance];
-        [_sharedInstance animateIn];
     });
 }
 
@@ -67,267 +77,225 @@ static LocketNotifyView *_sharedInstance = nil;
     });
 }
 
-// MARK: - Init
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
         self.floatingDots = [NSMutableArray array];
-        [self setupViews];
+        [self setupUltimateViews];
         [self startFloatingDotsAnimation];
     }
     return self;
 }
 
-- (void)setupViews {
-    // --- Background blur + dim ---
-    UIBlurEffect *blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
-    UIVisualEffectView *blurView = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
-    blurView.frame = self.bounds;
-    blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self addSubview:blurView];
+- (void)setupUltimateViews {
+    // 1. Phông nền tối mờ hậu cảnh
+    self.backgroundDimView = [[UIView alloc] initWithFrame:self.bounds];
+    self.backgroundDimView.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.45];
+    self.backgroundDimView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self addSubview:self.backgroundDimView];
 
-    UIView *dimView = [[UIView alloc] initWithFrame:self.bounds];
-    dimView.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
-    dimView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self addSubview:dimView];
-    self.backgroundView = dimView;
-
-    // Tap background to dismiss
     UITapGestureRecognizer *tapBg = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissTapped)];
-    [self.backgroundView addGestureRecognizer:tapBg];
+    [self.backgroundDimView addGestureRecognizer:tapBg];
 
-    // --- Card Container ---
-    CGFloat cardWidth = MIN(self.bounds.size.width - 60, 320);
-    CGFloat cardHeight = 420;
-    self.cardView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, cardWidth, cardHeight)];
-    self.cardView.center = CGPointMake(self.bounds.size.width / 2, self.bounds.size.height / 2);
-    self.cardView.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.12 alpha:1.0];
-    self.cardView.layer.cornerRadius = 28;
-    self.cardView.layer.cornerCurve = kCACornerCurveContinuous;
-    self.cardView.clipsToBounds = YES;
-    [self addSubview:self.cardView];
+    // Cấu hình Kích thước gọn gàng ôm form máy
+    CGFloat cardWidth = MIN(self.bounds.size.width - 50, 330);
+    CGFloat cardHeight = 415;
+    
+    // 2. Thẻ Kính mờ (Main Glassmorphism Card)
+    UIBlurEffect *blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
+    self.cardBlurView = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+    self.cardBlurView.frame = CGRectMake(0, 0, cardWidth, cardHeight);
+    self.cardBlurView.center = CGPointMake(self.bounds.size.width / 2, self.bounds.size.height / 2);
+    self.cardBlurView.layer.cornerRadius = 28;
+    self.cardBlurView.layer.cornerCurve = kCACornerCurveContinuous;
+    self.cardBlurView.clipsToBounds = YES;
+    
+    // Đổ bóng mềm mại tạo chiều sâu
+    self.cardBlurView.layer.shadowColor = [UIColor blackColor].CGColor;
+    self.cardBlurView.layer.shadowOffset = CGSizeMake(0, 15);
+    self.cardBlurView.layer.shadowRadius = 30;
+    self.cardBlurView.layer.shadowOpacity = 0.55;
+    self.cardBlurView.layer.masksToBounds = NO; 
+    [self addSubview:self.cardBlurView];
 
-    // Gradient Border
-    self.borderGradient = [CAGradientLayer layer];
-    self.borderGradient.frame = CGRectMake(-4, -4, cardWidth + 8, cardHeight + 8);
-    self.borderGradient.colors = @[
-        (id)[UIColor colorWithRed:1.0 green:0.3 blue:0.5 alpha:1.0].CGColor,
-        (id)[UIColor colorWithRed:0.4 green:0.2 blue:1.0 alpha:1.0].CGColor,
-        (id)[UIColor colorWithRed:0.0 green:0.7 blue:1.0 alpha:1.0].CGColor,
-        (id)[UIColor colorWithRed:1.0 green:0.3 blue:0.5 alpha:1.0].CGColor
+    // 3. Khung Viền Xoay Định Vị Tĩnh
+    self.borderContainerView = [[UIView alloc] initWithFrame:self.cardBlurView.bounds];
+    self.borderContainerView.userInteractionEnabled = NO;
+    
+    self.staticBorderMask = [CAShapeLayer layer];
+    self.staticBorderMask.path = [UIBezierPath bezierPathWithRoundedRect:self.borderContainerView.bounds cornerRadius:28].CGPath;
+    self.staticBorderMask.fillColor = [UIColor clearColor].CGColor;
+    self.staticBorderMask.strokeColor = [UIColor whiteColor].CGColor;
+    self.staticBorderMask.lineWidth = 1.8;
+    self.borderContainerView.layer.mask = self.staticBorderMask;
+
+    self.rotatingGradientLayer = [CAGradientLayer layer];
+    CGFloat maxDimension = MAX(cardWidth, cardHeight) * 1.5;
+    self.rotatingGradientLayer.frame = CGRectMake(0, 0, maxDimension, maxDimension);
+    self.rotatingGradientLayer.position = CGPointMake(cardWidth / 2, cardHeight / 2);
+    self.rotatingGradientLayer.colors = @[
+        (id)[UIColor colorWithRed:1.0 green:0.35 blue:0.6 alpha:1.0].CGColor,
+        (id)[UIColor colorWithRed:0.5 green:0.30 blue:1.0 alpha:1.0].CGColor,
+        (id)[UIColor colorWithRed:0.2 green:0.75 blue:1.0 alpha:1.0].CGColor,
+        (id)[UIColor colorWithRed:1.0 green:0.35 blue:0.6 alpha:1.0].CGColor
     ];
-    self.borderGradient.locations = @[@0.0, @0.33, @0.66, @1.0];
-    self.borderGradient.startPoint = CGPointMake(0, 0);
-    self.borderGradient.endPoint = CGPointMake(1, 1);
-    self.borderGradient.cornerRadius = 32;
-    self.borderGradient.masksToBounds = YES;
+    self.rotatingGradientLayer.startPoint = CGPointMake(0, 0);
+    self.rotatingGradientLayer.endPoint = CGPointMake(1, 1);
+    [self.borderContainerView.layer addSublayer:self.rotatingGradientLayer];
+    [self.cardBlurView.contentView.layer addSublayer:self.borderContainerView.layer];
 
-    self.borderShape = [CAShapeLayer layer];
-    UIBezierPath *borderPath = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(4, 4, cardWidth, cardHeight) cornerRadius:28];
-    self.borderShape.path = borderPath.CGPath;
-    self.borderShape.fillColor = [UIColor clearColor].CGColor;
-    self.borderShape.strokeColor = [UIColor whiteColor].CGColor;
-    self.borderShape.lineWidth = 3;
-    self.borderGradient.mask = self.borderShape;
-
-    [self.cardView.superview.layer insertSublayer:self.borderGradient below:self.cardView];
-
-    // Inner gradient background on card
-    CAGradientLayer *innerGradient = [CAGradientLayer layer];
-    innerGradient.frame = CGRectMake(0, 0, cardWidth, cardHeight);
-    innerGradient.colors = @[
-        (id)[UIColor colorWithRed:0.12 green:0.10 blue:0.18 alpha:1.0].CGColor,
-        (id)[UIColor colorWithRed:0.06 green:0.06 blue:0.10 alpha:1.0].CGColor
-    ];
-    innerGradient.locations = @[@0.0, @1.0];
-    innerGradient.cornerRadius = 28;
-    [self.cardView.layer insertSublayer:innerGradient atIndex:0];
-
-    // --- Glow effect (shadow) ---
-    self.cardView.layer.shadowColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.6 alpha:1.0].CGColor;
-    self.cardView.layer.shadowOffset = CGSizeMake(0, 0);
-    self.cardView.layer.shadowRadius = 30;
-    self.cardView.layer.shadowOpacity = 0.7;
-    self.cardView.layer.masksToBounds = NO;
-    self.cardView.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.cardView.bounds cornerRadius:28].CGPath;
-
-    // --- Floating particles on card surface (decorative) ---
-    for (int i = 0; i < 15; i++) {
-        UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 4 + arc4random_uniform(6), 4 + arc4random_uniform(6))];
-        dot.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.4 + (arc4random_uniform(40) / 100.0)];
-        dot.layer.cornerRadius = dot.frame.size.width / 2;
+    // 4. Hạt bụi bay lơ lửng ngầm
+    for (int i = 0; i < 8; i++) {
+        UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 3, 3)];
+        dot.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.15 + (arc4random_uniform(30) / 100.0)];
+        dot.layer.cornerRadius = 1.5;
         dot.center = CGPointMake(arc4random_uniform((int)cardWidth), arc4random_uniform((int)cardHeight));
         dot.alpha = 0;
-        [self.cardView addSubview:dot];
+        [self.cardBlurView.contentView addSubview:dot];
         [self.floatingDots addObject:dot];
     }
 
-    // --- Icon ---
-    self.iconImageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 70, 70)];
-    self.iconImageView.center = CGPointMake(cardWidth / 2, 55);
-    self.iconImageView.contentMode = UIViewContentModeScaleAspectFit;
-    // Sử dụng SF Symbol hoặc emoji render
-    UILabel *emojiLabel = [[UILabel alloc] initWithFrame:self.iconImageView.bounds];
-    emojiLabel.text = @"📸";
-    emojiLabel.font = [UIFont systemFontOfSize:50];
-    emojiLabel.textAlignment = NSTextAlignmentCenter;
-    [self.iconImageView addSubview:emojiLabel];
-    [self.cardView addSubview:self.iconImageView];
+    // 5. Khung chứa Icon chính giữa
+    self.iconContainerView = [[UIView alloc] initWithFrame:CGRectMake((cardWidth - 70)/2, 25, 70, 70)];
+    self.iconContainerView.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
+    self.iconContainerView.layer.cornerRadius = 35;
+    self.iconContainerView.layer.borderWidth = 1.0;
+    self.iconContainerView.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.12].CGColor;
+    
+    UIImageView *iconView = [[UIImageView alloc] initWithFrame:CGRectMake(13, 13, 44, 44)];
+    if (@available(iOS 13.0, *)) {
+        UIImage *cameraIcon = [UIImage systemImageNamed:@"camera.macro.circle.fill"];
+        if (!cameraIcon) cameraIcon = [UIImage systemImageNamed:@"camera.circle.fill"];
+        iconView.image = [cameraIcon imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+        iconView.tintColor = [UIColor whiteColor];
+    } else {
+        UILabel *emojiIcon = [[UILabel alloc] initWithFrame:iconView.bounds];
+        emojiIcon.text = @"📸";
+        emojiIcon.font = [UIFont systemFontOfSize:36];
+        emojiIcon.textAlignment = NSTextAlignmentCenter;
+        [iconView addSubview:emojiIcon];
+    }
+    iconView.contentMode = UIViewContentModeScaleAspectFit;
+    [self.iconContainerView addSubview:iconView];
+    [self.cardBlurView.contentView addSubview:self.iconContainerView];
 
-    // --- Title ---
-    self.titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 100, cardWidth - 40, 36)];
-    self.titleLabel.text = @"✨ Chào mừng đến Locket ✨";
-    self.titleLabel.font = [UIFont boldSystemFontOfSize:22];
+    // 6. Tiêu đề
+    self.titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 110, cardWidth - 40, 26)];
+    self.titleLabel.text = @"Chào mừng đến Locket";
+    self.titleLabel.font = [UIFont systemFontOfSize:21 weight:UIFontWeightBold];
     self.titleLabel.textColor = [UIColor whiteColor];
     self.titleLabel.textAlignment = NSTextAlignmentCenter;
-    self.titleLabel.adjustsFontSizeToFitWidth = YES;
-    [self.cardView addSubview:self.titleLabel];
+    [self.cardBlurView.contentView addSubview:self.titleLabel];
 
-    // --- Subtitle ---
-    self.subtitleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 140, cardWidth - 40, 20)];
+    self.subtitleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 140, cardWidth - 40, 18)];
     self.subtitleLabel.text = @"Khoảnh khắc hôm nay thật đẹp!";
-    self.subtitleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    self.subtitleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     self.subtitleLabel.textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
     self.subtitleLabel.textAlignment = NSTextAlignmentCenter;
-    [self.cardView addSubview:self.subtitleLabel];
+    [self.cardBlurView.contentView addSubview:self.subtitleLabel];
 
-    // --- Divider line ---
-    UIView *divider = [[UIView alloc] initWithFrame:CGRectMake(30, 175, cardWidth - 60, 1)];
-    divider.backgroundColor = [UIColor colorWithWhite:0.25 alpha:1.0];
-    divider.layer.cornerRadius = 0.5;
-    [self.cardView addSubview:divider];
-
-    // --- Credit Label ---
-    self.creditLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 190, cardWidth - 40, 50)];
+    // 7. Nhãn Credit bản quyền
+    self.creditLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 175, cardWidth - 40, 18)];
     NSString *creditText = [NSString stringWithFormat:@"Made by %@", CREDIT_NAME];
     NSMutableAttributedString *attrCredit = [[NSMutableAttributedString alloc] initWithString:creditText];
-    [attrCredit addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithWhite:0.6 alpha:1.0] range:NSMakeRange(0, 8)];
-    [attrCredit addAttribute:NSFontAttributeName value:[UIFont systemFontOfSize:13 weight:UIFontWeightRegular] range:NSMakeRange(0, 8)];
-    [attrCredit addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithRed:1.0 green:0.45 blue:0.6 alpha:1.0] range:NSMakeRange(8, creditText.length - 8)];
-    [attrCredit addAttribute:NSFontAttributeName value:[UIFont boldSystemFontOfSize:15] range:NSMakeRange(8, creditText.length - 8)];
+    [attrCredit addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithWhite:0.55 alpha:1.0] range:NSMakeRange(0, 8)];
+    [attrCredit addAttribute:NSFontAttributeName value:[UIFont systemFontOfSize:12 weight:UIFontWeightRegular] range:NSMakeRange(0, 8)];
+    [attrCredit addAttribute:NSForegroundColorAttributeName value:[UIColor colorWithRed:1.0 green:0.55 blue:0.65 alpha:1.0] range:NSMakeRange(8, creditText.length - 8)];
+    [attrCredit addAttribute:NSFontAttributeName value:[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold] range:NSMakeRange(8, creditText.length - 8)];
     self.creditLabel.attributedText = attrCredit;
     self.creditLabel.textAlignment = NSTextAlignmentCenter;
-    self.creditLabel.numberOfLines = 2;
-    [self.cardView addSubview:self.creditLabel];
+    [self.cardBlurView.contentView addSubview:self.creditLabel];
 
-    // --- Zalo Button ---
-    self.zaloButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.zaloButton.frame = CGRectMake(30, 255, cardWidth - 60, 50);
-    [self.zaloButton setTitle:[NSString stringWithFormat:@"💬 Zalo: %@", ZALO_PHONE] forState:UIControlStateNormal];
-    self.zaloButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
-    [self.zaloButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.zaloButton.backgroundColor = [UIColor colorWithRed:0.0 green:0.55 blue:0.95 alpha:1.0];
-    self.zaloButton.layer.cornerRadius = 25;
-    self.zaloButton.layer.cornerCurve = kCACornerCurveContinuous;
-    self.zaloButton.layer.shadowColor = [UIColor colorWithRed:0.0 green:0.55 blue:0.95 alpha:0.6].CGColor;
-    self.zaloButton.layer.shadowOffset = CGSizeMake(0, 4);
-    self.zaloButton.layer.shadowRadius = 12;
-    self.zaloButton.layer.shadowOpacity = 0.8;
-    self.zaloButton.tag = 1;
-    [self.zaloButton addTarget:self action:@selector(contactTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [self.cardView addSubview:self.zaloButton];
+    // Block khởi tạo nút liên lạc nhanh
+    UIButton *(^createContactButton)(NSString *, NSString *, UIColor *, CGFloat, NSInteger) = ^UIButton *(NSString *title, NSString *iconName, UIColor *bgColor, CGFloat yPos, NSInteger tag) {
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+        btn.frame = CGRectMake(25, yPos, cardWidth - 50, 46);
+        btn.backgroundColor = bgColor;
+        btn.layer.cornerRadius = 14;
+        btn.layer.cornerCurve = kCACornerCurveContinuous;
+        btn.tag = tag;
+        
+        if (@available(iOS 13.0, *)) {
+            UIImage *icon = [[UIImage systemImageNamed:iconName] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+            [btn setImage:icon forState:UIControlStateNormal];
+            btn.tintColor = [UIColor whiteColor];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            btn.imageEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 8);
+#pragma clang diagnostic pop
+        }
+        
+        [btn setTitle:title forState:UIControlStateNormal];
+        btn.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+        [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [btn addTarget:self action:@selector(contactTapped:) forControlEvents:UIControlEventTouchUpInside];
+        return btn;
+    };
 
-    // --- Telegram Button ---
-    self.telegramButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.telegramButton.frame = CGRectMake(30, 320, cardWidth - 60, 50);
-    [self.telegramButton setTitle:[NSString stringWithFormat:@"✈️ Telegram: @%@", TELEGRAM_USER] forState:UIControlStateNormal];
-    self.telegramButton.titleLabel.font = [UIFont boldSystemFontOfSize:15];
-    [self.telegramButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.telegramButton.backgroundColor = [UIColor colorWithRed:0.15 green:0.65 blue:0.95 alpha:1.0];
-    self.telegramButton.layer.cornerRadius = 25;
-    self.telegramButton.layer.cornerCurve = kCACornerCurveContinuous;
-    self.telegramButton.layer.shadowColor = [UIColor colorWithRed:0.15 green:0.65 blue:0.95 alpha:0.6].CGColor;
-    self.telegramButton.layer.shadowOffset = CGSizeMake(0, 4);
-    self.telegramButton.layer.shadowRadius = 12;
-    self.telegramButton.layer.shadowOpacity = 0.8;
-    self.telegramButton.tag = 2;
-    [self.telegramButton addTarget:self action:@selector(contactTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [self.cardView addSubview:self.telegramButton];
+    // 8. Các nút Liên lạc Mạng xã hội bố trí cực gọn
+    self.zaloButton = createContactButton([NSString stringWithFormat:@"Zalo: %@", ZALO_PHONE], @"message.fill", [UIColor colorWithRed:0.0 green:0.48 blue:0.9 alpha:0.95], 215, 1);
+    [self.cardBlurView.contentView addSubview:self.zaloButton];
 
-    // --- Close Button ---
-    self.closeButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.closeButton.frame = CGRectMake(cardWidth - 45, 10, 35, 35);
-    self.closeButton.backgroundColor = [UIColor colorWithWhite:0.2 alpha:0.8];
-    self.closeButton.layer.cornerRadius = 17.5;
-    [self.closeButton setTitle:@"✕" forState:UIControlStateNormal];
-    self.closeButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
-    [self.closeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [self.closeButton addTarget:self action:@selector(dismissTapped) forControlEvents:UIControlEventTouchUpInside];
-    [self.cardView addSubview:self.closeButton];
-}
+    self.telegramButton = createContactButton([NSString stringWithFormat:@"Telegram: @%@", TELEGRAM_USER], @"paperplane.fill", [UIColor colorWithRed:0.12 green:0.58 blue:0.87 alpha:0.95], 273, 2);
+    [self.cardBlurView.contentView addSubview:self.telegramButton];
 
-// MARK: - Animation In
-- (void)animateIn {
-    self.alpha = 0;
-    self.cardView.transform = CGAffineTransformMakeScale(0.5, 0.5);
-    self.cardView.alpha = 0;
+    // 9. Nút ĐÓNG bên dưới mỏng nhẹ sang trọng
+    self.bottomCloseButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.bottomCloseButton.frame = CGRectMake(25, 345, cardWidth - 50, 44);
+    self.bottomCloseButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.06];
+    self.bottomCloseButton.layer.cornerRadius = 12;
+    self.bottomCloseButton.layer.cornerCurve = kCACornerCurveContinuous;
+    self.bottomCloseButton.layer.borderWidth = 0.8;
+    self.bottomCloseButton.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.08].CGColor;
+    [self.bottomCloseButton setTitle:@"Đóng" forState:UIControlStateNormal];
+    self.bottomCloseButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+    [self.bottomCloseButton setTitleColor:[UIColor colorWithWhite:0.8 alpha:1.0] forState:UIControlStateNormal];
+    [self.bottomCloseButton addTarget:self action:@selector(dismissTapped) forControlEvents:UIControlEventTouchUpInside];
+    
+    [self.bottomCloseButton addTarget:self action:@selector(contactTapped:) forControlEvents:UIControlEventTouchDown]; 
+    [self.cardBlurView.contentView addSubview:self.bottomCloseButton];
 
-    // Rotate border gradient continuously
-    CABasicAnimation *rotate = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
-    rotate.fromValue = @0;
-    rotate.toValue = @(2 * M_PI);
-    rotate.duration = 8;
-    rotate.repeatCount = HUGE_VALF;
-    [self.borderGradient addAnimation:rotate forKey:@"rotateBorder"];
-
-    // Pulsate glow
-    CABasicAnimation *pulseGlow = [CABasicAnimation animationWithKeyPath:@"shadowOpacity"];
-    pulseGlow.fromValue = @0.4;
-    pulseGlow.toValue = @1.0;
-    pulseGlow.duration = 1.5;
-    pulseGlow.autoreverses = YES;
-    pulseGlow.repeatCount = HUGE_VALF;
-    [self.cardView.layer addAnimation:pulseGlow forKey:@"pulseGlow"];
-
-    [UIView animateWithDuration:0.6 delay:0 usingSpringWithDamping:0.55 initialSpringVelocity:0.8 options:UIViewAnimationOptionCurveEaseOut animations:^{
-        self.alpha = 1.0;
-        self.cardView.transform = CGAffineTransformIdentity;
-        self.cardView.alpha = 1.0;
-    } completion:^(BOOL finished) {
-        // Animate title
-        [self animateTitleIn];
-
-        // Animate buttons sequentially
-        [self animateButtonIn:self.zaloButton delay:0.25];
-        [self animateButtonIn:self.telegramButton delay:0.4];
-
-        // Animate dots
-        [self animateFloatingDots];
-    }];
-}
-
-- (void)animateTitleIn {
-    self.titleLabel.transform = CGAffineTransformMakeTranslation(0, -20);
-    self.titleLabel.alpha = 0;
-    [UIView animateWithDuration:0.5 delay:0.1 usingSpringWithDamping:0.6 initialSpringVelocity:0.5 options:0 animations:^{
-        self.titleLabel.transform = CGAffineTransformIdentity;
-        self.titleLabel.alpha = 1.0;
-    } completion:nil];
-
-    // Icon bounce
-    self.iconImageView.transform = CGAffineTransformMakeScale(0.3, 0.3);
-    [UIView animateWithDuration:0.7 delay:0.0 usingSpringWithDamping:0.4 initialSpringVelocity:0.9 options:0 animations:^{
-        self.iconImageView.transform = CGAffineTransformIdentity;
-    } completion:nil];
-}
-
-- (void)animateButtonIn:(UIButton *)button delay:(NSTimeInterval)delay {
-    button.transform = CGAffineTransformMakeScale(0.7, 0.7);
-    button.alpha = 0;
-    [UIView animateWithDuration:0.5 delay:delay usingSpringWithDamping:0.55 initialSpringVelocity:0.7 options:0 animations:^{
-        button.transform = CGAffineTransformIdentity;
-        button.alpha = 1.0;
-    } completion:nil];
-}
-
-// MARK: - Floating Dots Animation
-- (void)startFloatingDotsAnimation {
-    for (UIView *dot in self.floatingDots) {
-        [self animateSingleDot:dot];
+    // 10. Nút chữ X nhỏ góc trên (ĐÃ SỬA LỖI ĐÓNG NGOẶC ] TẠI ĐÂY)
+    self.topXButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.topXButton.frame = CGRectMake(cardWidth - 38, 12, 26, 26);
+    self.topXButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.1];
+    self.topXButton.layer.cornerRadius = 13;
+    
+    if (@available(iOS 13.0, *)) {
+        UIImage *xIcon = [[UIImage systemImageNamed:@"xmark"] imageWithConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:10 weight:UIImageSymbolWeightBold]];
+        [self.topXButton setImage:xIcon forState:UIControlStateNormal];
+        self.topXButton.tintColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    } else {
+        [self.topXButton setTitle:@"✕" forState:UIControlStateNormal];
+        self.topXButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightBold];
     }
+    [self.topXButton addTarget:self action:@selector(dismissTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.cardBlurView.contentView addSubview:self.topXButton];
 }
 
-- (void)animateFloatingDots {
+// ============================================================
+// MARK: - Hệ thống Hoạt họa
+// ============================================================
+- (void)animateIn {
+    self.backgroundDimView.alpha = 0;
+    self.cardBlurView.alpha = 0;
+    self.cardBlurView.transform = CGAffineTransformMakeScale(0.85, 0.85);
+    
+    CABasicAnimation *rotateAnim = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
+    rotateAnim.fromValue = @0;
+    rotateAnim.toValue = @(2 * M_PI);
+    rotateAnim.duration = 6.0;
+    rotateAnim.repeatCount = HUGE_VALF;
+    [self.rotatingGradientLayer addAnimation:rotateAnim forKey:@"smoothBorderRotation"];
+
+    [UIView animateWithDuration:0.5 delay:0 usingSpringWithDamping:0.78 initialSpringVelocity:0.4 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        self.backgroundDimView.alpha = 1.0;
+        self.cardBlurView.alpha = 1.0;
+        self.cardBlurView.transform = CGAffineTransformIdentity;
+    } completion:nil];
+}
+
+- (void)startFloatingDotsAnimation {
     for (UIView *dot in self.floatingDots) {
         dot.alpha = 1.0;
         [self animateSingleDot:dot];
@@ -335,78 +303,97 @@ static LocketNotifyView *_sharedInstance = nil;
 }
 
 - (void)animateSingleDot:(UIView *)dot {
-    CGFloat duration = 2.0 + (arc4random_uniform(30) / 10.0);
+    CGFloat duration = 3.5 + (arc4random_uniform(25) / 10.0);
     CGFloat delay = arc4random_uniform(20) / 10.0;
-
     [UIView animateWithDuration:duration delay:delay options:UIViewAnimationOptionCurveEaseInOut | UIViewAnimationOptionRepeat | UIViewAnimationOptionAutoreverse animations:^{
         CGFloat dx = (CGFloat)(arc4random_uniform(30) - 15);
         CGFloat dy = (CGFloat)(arc4random_uniform(30) - 15);
         dot.center = CGPointMake(dot.center.x + dx, dot.center.y + dy);
-        dot.alpha = 0.2 + (arc4random_uniform(60) / 100.0);
+        dot.alpha = 0.05 + (arc4random_uniform(30) / 100.0);
     } completion:nil];
 }
 
-// MARK: - Animation Out
 - (void)animateOut {
-    [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.9 initialSpringVelocity:0.3 options:UIViewAnimationOptionCurveEaseIn animations:^{
-        self.cardView.transform = CGAffineTransformMakeScale(0.6, 0.6);
-        self.cardView.alpha = 0;
-        self.alpha = 0;
+    [UIView animateWithDuration:0.22 animations:^{
+        self.backgroundDimView.alpha = 0;
+        self.cardBlurView.alpha = 0;
+        self.cardBlurView.transform = CGAffineTransformMakeScale(0.94, 0.94);
     } completion:^(BOOL finished) {
         [self removeFromSuperview];
         _sharedInstance = nil;
     }];
 }
 
-// MARK: - Actions
 - (void)dismissTapped {
     [LocketNotifyView dismiss];
 }
 
 - (void)contactTapped:(UIButton *)sender {
-    // Haptic feedback
-    UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-    [feedback impactOccurred];
+    if (@available(iOS 10.0, *)) {
+        UIImpactFeedbackGenerator *haptic = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+        [haptic impactOccurred];
+    }
 
-    // Flash animation
-    [UIView animateWithDuration:0.1 animations:^{
-        sender.transform = CGAffineTransformMakeScale(0.92, 0.92);
+    [UIView animateWithDuration:0.08 animations:^{
+        sender.transform = CGAffineTransformMakeScale(0.96, 0.96);
+        sender.alpha = 0.85;
     } completion:^(BOOL finished) {
-        [UIView animateWithDuration:0.2 delay:0 usingSpringWithDamping:0.3 initialSpringVelocity:0.8 options:0 animations:^{
+        [UIView animateWithDuration:0.2 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:0.4 options:0 animations:^{
             sender.transform = CGAffineTransformIdentity;
+            sender.alpha = 1.0;
         } completion:nil];
     }];
 
-    // Sao chép thông tin vào clipboard
+    if (sender == self.bottomCloseButton) return;
+
     NSString *copyText = (sender.tag == 1) ? ZALO_PHONE : [NSString stringWithFormat:@"@%@", TELEGRAM_USER];
     UIPasteboard *pb = [UIPasteboard generalPasteboard];
     pb.string = copyText;
 
-    // Hiển thị thông báo nhỏ trên card
     [self showCopiedToast:sender.tag == 1 ? @"Zalo" : @"Telegram"];
 }
 
 - (void)showCopiedToast:(NSString *)platform {
-    UILabel *toast = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 180, 40)];
-    toast.center = CGPointMake(self.cardView.bounds.size.width / 2, self.cardView.bounds.size.height - 30);
-    toast.text = [NSString stringWithFormat:@"✅ Đã sao chép %@!", platform];
-    toast.textAlignment = NSTextAlignmentCenter;
-    toast.font = [UIFont boldSystemFontOfSize:13];
-    toast.textColor = [UIColor whiteColor];
-    toast.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.7];
-    toast.layer.cornerRadius = 20;
-    toast.clipsToBounds = YES;
-    toast.alpha = 0;
-    toast.transform = CGAffineTransformMakeTranslation(0, 20);
-    [self.cardView addSubview:toast];
+    UIView *toast = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 210, 44)];
+    toast.center = CGPointMake(self.cardBlurView.bounds.size.width / 2, self.cardBlurView.bounds.size.height / 2);
+    toast.layer.cornerRadius = 22;
+    toast.clipsToBounds = NO; 
+    
+    CAGradientLayer *toastGrad = [CAGradientLayer layer];
+    toastGrad.frame = toast.bounds;
+    toastGrad.colors = @[
+        (id)[UIColor colorWithRed:0.00 green:0.75 blue:0.45 alpha:1.0].CGColor,
+        (id)[UIColor colorWithRed:0.05 green:0.55 blue:0.90 alpha:1.0].CGColor
+    ];
+    toastGrad.startPoint = CGPointMake(0, 0);
+    toastGrad.endPoint = CGPointMake(1, 1);
+    toastGrad.cornerRadius = 22;
+    [toast.layer addSublayer:toastGrad];
+    
+    toast.layer.shadowColor = [UIColor colorWithRed:0.00 green:0.75 blue:0.45 alpha:1.0].CGColor;
+    toast.layer.shadowOffset = CGSizeZero;
+    toast.layer.shadowRadius = 12;
+    toast.layer.shadowOpacity = 0.65;
 
-    [UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.6 initialSpringVelocity:0.5 options:0 animations:^{
+    UILabel *toastLabel = [[UILabel alloc] initWithFrame:toast.bounds];
+    toastLabel.text = [NSString stringWithFormat:@"✨ Đã chép %@ ✨", platform];
+    toastLabel.textAlignment = NSTextAlignmentCenter;
+    toastLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+    toastLabel.textColor = [UIColor whiteColor];
+    [toast addSubview:toastLabel];
+
+    [self.cardBlurView.contentView addSubview:toast];
+
+    toast.alpha = 0;
+    toast.transform = CGAffineTransformMakeScale(0.5, 0.5);
+
+    [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.65 initialSpringVelocity:0.5 options:0 animations:^{
         toast.alpha = 1.0;
         toast.transform = CGAffineTransformIdentity;
     } completion:^(BOOL finished) {
-        [UIView animateWithDuration:0.3 delay:1.2 options:0 animations:^{
+        [UIView animateWithDuration:0.25 delay:1.1 options:0 animations:^{
             toast.alpha = 0;
-            toast.transform = CGAffineTransformMakeTranslation(0, -20);
+            toast.transform = CGAffineTransformMakeScale(0.8, 0.8);
         } completion:^(BOOL finished) {
             [toast removeFromSuperview];
         }];
@@ -416,30 +403,11 @@ static LocketNotifyView *_sharedInstance = nil;
 @end
 
 // ============================================================
-// MARK: - Hook vào App Delegate của Locket
-// ============================================================
-%hook AppDelegate
-
-- (void)applicationDidBecomeActive:(UIApplication *)application {
-    %orig;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        // Chỉ hiển thị 1 lần sau khi app khởi động
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [LocketNotifyView show];
-        });
-    });
-}
-
-%end
-
-// ============================================================
-// MARK: - Constructor / Destructor
+// MARK: - Constructor
 // ============================================================
 %ctor {
-    NSLog(@"🧩 LocketNotify dylib loaded successfully!");
-}
-
-%dtor {
-    NSLog(@"🧩 LocketNotify dylib unloaded.");
+    NSLog(@"🧩 LocketNotify Ultimate Compact Edition Loaded!");
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [LocketNotifyView show];
+    });
 }
