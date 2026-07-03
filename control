@@ -1,0 +1,9 @@
+Package: com.younj.locketnotify
+Name: LocketNotify
+Depends: mobilesubstrate, firmware (>= 15.0)
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Hiển thị thông báo đẹp mắt khi vào app Locket
+Maintainer: younj_icloud
+Author: younj_icloud
+Section: Tweaks
